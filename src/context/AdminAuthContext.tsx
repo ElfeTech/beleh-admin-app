@@ -6,12 +6,12 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
+import { getRedirectResult, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { clearAdminToken, getAdminToken } from '../lib/adminToken';
-import { getRedirectResult } from 'firebase/auth';
 import {
   AdminAuthError,
+  ensureAdminSession,
   exchangeFirebaseToken,
   fetchAdminMe,
   loginWithGoogle,
