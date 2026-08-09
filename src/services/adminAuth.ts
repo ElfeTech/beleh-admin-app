@@ -1,6 +1,11 @@
 import axios from 'axios';
-import { signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
+import {
+  signInWithPopup,
+  signInWithRedirect,
+  signOut as firebaseSignOut,
+} from 'firebase/auth';
 import { auth, getGoogleProvider } from '../lib/firebase';
+import { patchWindowOpenCentered } from '../lib/centeredPopup';
 import { clearAdminToken, setAdminToken } from '../lib/adminToken';
 import { adminApiBaseUrl, adminApiClient, extractAdminError } from './adminApiClient';
 import type { AdminLoginResponse, AdminUserSummary } from '../types/admin';
@@ -14,6 +19,36 @@ export class AdminAuthError extends Error {
     this.name = 'AdminAuthError';
     this.code = opts?.code;
     this.status = opts?.status;
+  }
+}
+
+function firebaseErrorCode(error: unknown): string | undefined {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === 'string' ? code : undefined;
+  }
+  return undefined;
+}
+
+async function completeLoginWithUser(user: {
+  getIdToken: () => Promise<string>;
+}): Promise<AdminLoginResponse> {
+  const idToken = await user.getIdToken();
+  try {
+    return await exchangeFirebaseToken(idToken);
+  } catch (error) {
+    // Keep Firebase session on 403 so UI can show "not a platform admin"
+    // and offer switch-account; clear JWT always.
+    clearAdminToken();
+    const isForbidden =
+      error instanceof AdminAuthError &&
+      (error.status === 403 ||
+        error.code === 'ADMIN_FORBIDDEN' ||
+        error.code === 'ADMIN_NOT_INVITED');
+    if (!isForbidden) {
+      await firebaseSignOut(auth).catch(() => undefined);
+    }
+    throw error;
   }
 }
 
@@ -34,23 +69,23 @@ export async function exchangeFirebaseToken(idToken: string): Promise<AdminLogin
 
 export async function loginWithGoogle(): Promise<AdminLoginResponse> {
   const provider = getGoogleProvider();
-  const result = await signInWithPopup(auth, provider);
-  const idToken = await result.user.getIdToken();
+  // Center the OAuth window; Firebase signInWithPopup does not accept features.
+  const restoreOpen = patchWindowOpenCentered(500, 600);
   try {
-    return await exchangeFirebaseToken(idToken);
+    const result = await signInWithPopup(auth, provider);
+    return await completeLoginWithUser(result.user);
   } catch (error) {
-    // Keep Firebase session on 403 so UI can show "not a platform admin"
-    // and offer switch-account; clear JWT always.
-    clearAdminToken();
-    const isForbidden =
-      error instanceof AdminAuthError &&
-      (error.status === 403 ||
-        error.code === 'ADMIN_FORBIDDEN' ||
-        error.code === 'ADMIN_NOT_INVITED');
-    if (!isForbidden) {
-      await firebaseSignOut(auth).catch(() => undefined);
+    const code = firebaseErrorCode(error);
+    // Browsers often block the cross-origin Firebase/Google popup (especially Safari /
+    // strict popup settings). Authorized domains do not fix this — fall back to redirect.
+    if (code === 'auth/popup-blocked') {
+      await signInWithRedirect(auth, provider);
+      // Page navigates away; keep the promise pending until unload.
+      return new Promise(() => undefined);
     }
     throw error;
+  } finally {
+    restoreOpen();
   }
 }
 

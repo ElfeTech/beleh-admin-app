@@ -9,9 +9,9 @@ import React, {
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { clearAdminToken, getAdminToken } from '../lib/adminToken';
+import { getRedirectResult } from 'firebase/auth';
 import {
   AdminAuthError,
-  ensureAdminSession,
   exchangeFirebaseToken,
   fetchAdminMe,
   loginWithGoogle,
@@ -32,6 +32,14 @@ interface AdminAuthContextValue {
 
 const AdminAuthContext = createContext<AdminAuthContextValue | null>(null);
 
+function applyForbiddenError(err: AdminAuthError, setError: (msg: string) => void) {
+  setError(
+    err.code === 'ADMIN_NOT_INVITED'
+      ? 'You have not been invited to the admin dashboard. Ask an existing admin to invite your email.'
+      : 'You are not a platform admin. Contact an administrator if you need access.',
+  );
+}
+
 export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const [admin, setAdmin] = useState<AdminUserSummary | null>(null);
   const [status, setStatus] = useState<AuthStatus>('loading');
@@ -39,6 +47,13 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+
+    // Surface redirect-flow failures; success is handled by onAuthStateChanged.
+    void getRedirectResult(auth).catch((err) => {
+      if (cancelled) return;
+      setStatus('unauthenticated');
+      setError(err instanceof Error ? err.message : 'Sign-in redirect failed');
+    });
 
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (cancelled) return;
@@ -71,11 +86,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
         setAdmin(null);
         if (err instanceof AdminAuthError && err.status === 403) {
           setStatus('forbidden');
-          setError(
-            err.code === 'ADMIN_NOT_INVITED'
-              ? 'You have not been invited to the admin dashboard. Ask an existing admin to invite your email.'
-              : 'You are not a platform admin. Contact an administrator if you need access.',
-          );
+          applyForbiddenError(err, setError);
         } else {
           setStatus('unauthenticated');
           setError(err instanceof Error ? err.message : 'Failed to establish admin session');
@@ -101,11 +112,7 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
       setAdmin(null);
       if (err instanceof AdminAuthError && err.status === 403) {
         setStatus('forbidden');
-        setError(
-          err.code === 'ADMIN_NOT_INVITED'
-            ? 'You have not been invited to the admin dashboard. Ask an existing admin to invite your email.'
-            : 'You are not a platform admin. Contact an administrator if you need access.',
-        );
+        applyForbiddenError(err, setError);
       } else {
         setStatus('unauthenticated');
         setError(err instanceof Error ? err.message : 'Sign-in failed');
