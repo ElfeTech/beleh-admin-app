@@ -10,6 +10,8 @@ import { clearAdminToken, setAdminToken } from '../lib/adminToken';
 import { adminApiBaseUrl, adminApiClient, extractAdminError } from './adminApiClient';
 import type { AdminLoginResponse, AdminUserSummary } from '../types/admin';
 
+export const PENDING_GOOGLE_REDIRECT_KEY = 'beleh_admin_pending_google_redirect';
+
 export class AdminAuthError extends Error {
   code?: string;
   status?: number;
@@ -28,6 +30,27 @@ function firebaseErrorCode(error: unknown): string | undefined {
     return typeof code === 'string' ? code : undefined;
   }
   return undefined;
+}
+
+function isLocalHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  return /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
+}
+
+export function clearPendingGoogleRedirect(): void {
+  try {
+    sessionStorage.removeItem(PENDING_GOOGLE_REDIRECT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function hasPendingGoogleRedirect(): boolean {
+  try {
+    return sessionStorage.getItem(PENDING_GOOGLE_REDIRECT_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
 async function completeLoginWithUser(user: {
@@ -55,24 +78,47 @@ export async function exchangeFirebaseToken(idToken: string): Promise<AdminLogin
     return data;
   } catch (error) {
     const parsed = extractAdminError(error);
+    // Axios "Network Error" with no response is usually CORS or mixed-content.
+    if (axios.isAxiosError(error) && !error.response) {
+      throw new AdminAuthError(
+        `Cannot reach admin API at ${adminApiBaseUrl} from ${typeof window !== 'undefined' ? window.location.origin : 'this origin'}. ` +
+          'If the browser console shows a CORS error, add this origin to the backend allowlist.',
+        { code: 'ADMIN_NETWORK', status: 0 },
+      );
+    }
     throw new AdminAuthError(parsed.message, { code: parsed.code, status: parsed.status });
   }
 }
 
 export async function loginWithGoogle(): Promise<AdminLoginResponse> {
   const provider = getGoogleProvider();
-  // Center the OAuth window; Firebase signInWithPopup does not accept features.
+
+  // Deployed hosts: prefer full-page redirect. Chrome/Safari often break Firebase
+  // popups across vercel.app → firebaseapp.com (third-party cookies), which looks
+  // like "Firebase succeeded then bounced to /login". Localhost is usually fine.
+  if (!isLocalHost()) {
+    try {
+      sessionStorage.setItem(PENDING_GOOGLE_REDIRECT_KEY, '1');
+    } catch {
+      // ignore
+    }
+    await signInWithRedirect(auth, provider);
+    return new Promise(() => undefined);
+  }
+
   const restoreOpen = patchWindowOpenCentered(500, 600);
   try {
     const result = await signInWithPopup(auth, provider);
     return await completeLoginWithUser(result.user);
   } catch (error) {
     const code = firebaseErrorCode(error);
-    // Browsers often block the cross-origin Firebase/Google popup (especially Safari /
-    // strict popup settings). Authorized domains do not fix this — fall back to redirect.
     if (code === 'auth/popup-blocked') {
+      try {
+        sessionStorage.setItem(PENDING_GOOGLE_REDIRECT_KEY, '1');
+      } catch {
+        // ignore
+      }
       await signInWithRedirect(auth, provider);
-      // Page navigates away; keep the promise pending until unload.
       return new Promise(() => undefined);
     }
     throw error;
@@ -93,6 +139,7 @@ export async function fetchAdminMe(): Promise<AdminUserSummary> {
 
 export async function logoutAdmin(): Promise<void> {
   clearAdminToken();
+  clearPendingGoogleRedirect();
   await firebaseSignOut(auth);
 }
 

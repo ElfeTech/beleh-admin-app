@@ -12,12 +12,14 @@ import { auth } from '../lib/firebase';
 import { clearAdminToken, getAdminToken } from '../lib/adminToken';
 import {
   AdminAuthError,
+  clearPendingGoogleRedirect,
   ensureAdminSession,
   exchangeFirebaseToken,
   fetchAdminMe,
   loginWithGoogle,
   logoutAdmin,
 } from '../services/adminAuth';
+import { adminApiBaseUrl } from '../services/adminApiClient';
 import type { AdminUserSummary } from '../types/admin';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'forbidden';
@@ -75,7 +77,7 @@ function toUserFacingAuthError(err: unknown): string {
     if (err.status === 503) {
       return err.message || 'Admin API is temporarily unavailable.';
     }
-    if (err.status === 401 || err.code === 'ADMIN_UNAUTHORIZED') {
+    if (err.status === 401 || err.code === 'ADMIN_UNAUTHORIZED' || err.code === 'ADMIN_NETWORK') {
       return err.message || 'Could not verify your Google session with the admin API.';
     }
     return err.message || 'Admin sign-in failed.';
@@ -135,33 +137,36 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
       try {
         if (getAdminToken()) {
           const me = await fetchAdminMe();
-          if (cancelled || gen !== resolveGenRef.current || loginInFlightRef.current) return;
-          setAdmin(me);
-          setStatus('authenticated');
-          setAuthError(null);
-          return;
-        }
-
-        const idToken = await firebaseUser.getIdToken();
-        const loginResult = await exchangeFirebaseToken(idToken);
         if (cancelled || gen !== resolveGenRef.current || loginInFlightRef.current) return;
-        setAdmin(loginResult.user);
+        clearPendingGoogleRedirect();
+        setAdmin(me);
         setStatus('authenticated');
         setAuthError(null);
-      } catch (err) {
-        if (cancelled || gen !== resolveGenRef.current || loginInFlightRef.current) return;
-        console.error('[admin-auth] bootstrap failed', err);
-        clearAdminToken();
-        setAdmin(null);
-        if (isForbiddenError(err)) {
-          setStatus('forbidden');
-          setAuthError(forbiddenMessage(err));
-        } else {
-          setStatus('unauthenticated');
-          setAuthError(toUserFacingAuthError(err));
-        }
+        return;
       }
-    });
+
+      const idToken = await firebaseUser.getIdToken();
+      const loginResult = await exchangeFirebaseToken(idToken);
+      if (cancelled || gen !== resolveGenRef.current || loginInFlightRef.current) return;
+      clearPendingGoogleRedirect();
+      setAdmin(loginResult.user);
+      setStatus('authenticated');
+      setAuthError(null);
+    } catch (err) {
+      if (cancelled || gen !== resolveGenRef.current || loginInFlightRef.current) return;
+      console.error('[admin-auth] bootstrap failed', err);
+      clearPendingGoogleRedirect();
+      clearAdminToken();
+      setAdmin(null);
+      if (isForbiddenError(err)) {
+        setStatus('forbidden');
+        setAuthError(forbiddenMessage(err));
+      } else {
+        setStatus('unauthenticated');
+        setAuthError(toUserFacingAuthError(err));
+      }
+    }
+  });
 
     return () => {
       cancelled = true;

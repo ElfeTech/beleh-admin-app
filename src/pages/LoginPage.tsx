@@ -4,6 +4,7 @@ import { LogIn } from 'lucide-react';
 import { motion } from 'framer-motion';
 import VectorWires from '../components/auth/VectorWires';
 import { useAdminAuth } from '../context/AdminAuthContext';
+import { adminApiBaseUrl } from '../services/adminApiClient';
 
 const LoginPage: React.FC = () => {
   const { status, error, login, clearError, logout } = useAdminAuth();
@@ -75,7 +76,12 @@ const LoginPage: React.FC = () => {
                   : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
               }`}
             >
-              {displayError}
+              <p>{displayError}</p>
+              <p className="mt-2 break-all text-[11px] opacity-70">
+                origin: {typeof window !== 'undefined' ? window.location.origin : '—'}
+                <br />
+                api: {adminApiBaseUrl}
+              </p>
             </div>
           ) : null}
 
