@@ -37,17 +37,9 @@ async function completeLoginWithUser(user: {
   try {
     return await exchangeFirebaseToken(idToken);
   } catch (error) {
-    // Keep Firebase session on 403 so UI can show "not a platform admin"
-    // and offer switch-account; clear JWT always.
     clearAdminToken();
-    const isForbidden =
-      error instanceof AdminAuthError &&
-      (error.status === 403 ||
-        error.code === 'ADMIN_FORBIDDEN' ||
-        error.code === 'ADMIN_NOT_INVITED');
-    if (!isForbidden) {
-      await firebaseSignOut(auth).catch(() => undefined);
-    }
+    // Keep the Google session so the login page can show the API error
+    // (signing out here races onAuthStateChanged and bounces back to /login).
     throw error;
   }
 }
@@ -90,8 +82,13 @@ export async function loginWithGoogle(): Promise<AdminLoginResponse> {
 }
 
 export async function fetchAdminMe(): Promise<AdminUserSummary> {
-  const { data } = await adminApiClient.get<AdminUserSummary>('/auth/me');
-  return data;
+  try {
+    const { data } = await adminApiClient.get<AdminUserSummary>('/auth/me');
+    return data;
+  } catch (error) {
+    const parsed = extractAdminError(error);
+    throw new AdminAuthError(parsed.message, { code: parsed.code, status: parsed.status });
+  }
 }
 
 export async function logoutAdmin(): Promise<void> {
