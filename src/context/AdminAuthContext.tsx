@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { getRedirectResult, onAuthStateChanged } from 'firebase/auth';
@@ -21,6 +22,8 @@ import type { AdminUserSummary } from '../types/admin';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'forbidden';
 
+const AUTH_ERROR_KEY = 'beleh_admin_auth_error';
+
 interface AdminAuthContextValue {
   admin: AdminUserSummary | null;
   status: AuthStatus;
@@ -32,31 +35,93 @@ interface AdminAuthContextValue {
 
 const AdminAuthContext = createContext<AdminAuthContextValue | null>(null);
 
-function applyForbiddenError(err: AdminAuthError, setError: (msg: string) => void) {
-  setError(
-    err.code === 'ADMIN_NOT_INVITED'
-      ? 'You have not been invited to the admin dashboard. Ask an existing admin to invite your email.'
-      : 'You are not a platform admin. Contact an administrator if you need access.',
+function readPersistedError(): string | null {
+  try {
+    return sessionStorage.getItem(AUTH_ERROR_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistError(message: string | null) {
+  try {
+    if (message) sessionStorage.setItem(AUTH_ERROR_KEY, message);
+    else sessionStorage.removeItem(AUTH_ERROR_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function isForbiddenError(err: unknown): err is AdminAuthError {
+  return (
+    err instanceof AdminAuthError &&
+    (err.status === 403 ||
+      err.code === 'ADMIN_NOT_INVITED' ||
+      err.code === 'ADMIN_FORBIDDEN')
   );
+}
+
+function toUserFacingAuthError(err: unknown): string {
+  if (err instanceof AdminAuthError) {
+    if (err.code === 'ADMIN_JWT_NOT_CONFIGURED') {
+      return 'Admin sign-in is not configured on the server (ADMIN_JWT_SECRET).';
+    }
+    if (err.code === 'ADMIN_EMAIL_REQUIRED') {
+      return 'Google did not provide an email for this account. Try another Google account.';
+    }
+    if (err.status === 404) {
+      return 'Admin API was not found. The dashboard may be pointing at the wrong backend URL.';
+    }
+    if (err.status === 503) {
+      return err.message || 'Admin API is temporarily unavailable.';
+    }
+    if (err.status === 401 || err.code === 'ADMIN_UNAUTHORIZED') {
+      return err.message || 'Could not verify your Google session with the admin API.';
+    }
+    return err.message || 'Admin sign-in failed.';
+  }
+  if (err instanceof Error && /network error|failed to fetch/i.test(err.message)) {
+    return 'Cannot reach the admin API. Check that VITE_API_BASE_URL points at the correct backend.';
+  }
+  return err instanceof Error ? err.message : 'Failed to establish admin session';
+}
+
+function forbiddenMessage(err: AdminAuthError): string {
+  return err.code === 'ADMIN_NOT_INVITED'
+    ? 'You have not been invited to the admin dashboard. Ask an existing admin to invite your email.'
+    : 'You are not a platform admin. Contact an administrator if you need access.';
 }
 
 export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const [admin, setAdmin] = useState<AdminUserSummary | null>(null);
   const [status, setStatus] = useState<AuthStatus>('loading');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => readPersistedError());
+  const loginInFlightRef = useRef(false);
+  const resolveGenRef = useRef(0);
+
+  const setAuthError = useCallback((message: string | null) => {
+    persistError(message);
+    setError(message);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
     // Surface redirect-flow failures; success is handled by onAuthStateChanged.
     void getRedirectResult(auth).catch((err) => {
-      if (cancelled) return;
+      if (cancelled || loginInFlightRef.current) return;
+      const message = err instanceof Error ? err.message : 'Sign-in redirect failed';
+      console.error('[admin-auth] getRedirectResult failed', err);
       setStatus('unauthenticated');
-      setError(err instanceof Error ? err.message : 'Sign-in redirect failed');
+      setAuthError(message);
     });
 
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (cancelled) return;
+
+      // Interactive login() owns the exchange; avoid a parallel bootstrap that can
+      // clear a freshly issued admin JWT and bounce the user back to /login.
+      if (loginInFlightRef.current) return;
 
       if (!firebaseUser) {
         clearAdminToken();
@@ -65,32 +130,35 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      const gen = ++resolveGenRef.current;
       setStatus('loading');
       try {
         if (getAdminToken()) {
           const me = await fetchAdminMe();
-          if (cancelled) return;
+          if (cancelled || gen !== resolveGenRef.current || loginInFlightRef.current) return;
           setAdmin(me);
           setStatus('authenticated');
+          setAuthError(null);
           return;
         }
 
         const idToken = await firebaseUser.getIdToken();
-        const login = await exchangeFirebaseToken(idToken);
-        if (cancelled) return;
-        setAdmin(login.user);
+        const loginResult = await exchangeFirebaseToken(idToken);
+        if (cancelled || gen !== resolveGenRef.current || loginInFlightRef.current) return;
+        setAdmin(loginResult.user);
         setStatus('authenticated');
+        setAuthError(null);
       } catch (err) {
-        if (cancelled) return;
+        if (cancelled || gen !== resolveGenRef.current || loginInFlightRef.current) return;
+        console.error('[admin-auth] bootstrap failed', err);
         clearAdminToken();
         setAdmin(null);
-        if (err instanceof AdminAuthError && err.status === 403) {
+        if (isForbiddenError(err)) {
           setStatus('forbidden');
-          applyForbiddenError(err, setError);
+          setAuthError(forbiddenMessage(err));
         } else {
           setStatus('unauthenticated');
-          setError(err instanceof Error ? err.message : 'Failed to establish admin session');
-          await logoutAdmin().catch(() => undefined);
+          setAuthError(toUserFacingAuthError(err));
         }
       }
     });
@@ -99,36 +167,44 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       unsub();
     };
-  }, []);
+  }, [setAuthError]);
 
   const login = useCallback(async () => {
-    setError(null);
+    loginInFlightRef.current = true;
+    resolveGenRef.current += 1;
+    setAuthError(null);
     setStatus('loading');
     try {
       const result = await loginWithGoogle();
       setAdmin(result.user);
       setStatus('authenticated');
+      setAuthError(null);
     } catch (err) {
+      console.error('[admin-auth] login failed', err);
       setAdmin(null);
-      if (err instanceof AdminAuthError && err.status === 403) {
+      if (isForbiddenError(err)) {
         setStatus('forbidden');
-        applyForbiddenError(err, setError);
+        setAuthError(forbiddenMessage(err));
       } else {
         setStatus('unauthenticated');
-        setError(err instanceof Error ? err.message : 'Sign-in failed');
+        setAuthError(toUserFacingAuthError(err));
       }
       throw err;
+    } finally {
+      loginInFlightRef.current = false;
     }
-  }, []);
+  }, [setAuthError]);
 
   const logout = useCallback(async () => {
+    loginInFlightRef.current = false;
+    resolveGenRef.current += 1;
     await logoutAdmin();
     setAdmin(null);
     setStatus('unauthenticated');
-    setError(null);
-  }, []);
+    setAuthError(null);
+  }, [setAuthError]);
 
-  const clearError = useCallback(() => setError(null), []);
+  const clearError = useCallback(() => setAuthError(null), [setAuthError]);
 
   const value = useMemo(
     () => ({ admin, status, error, login, logout, clearError }),

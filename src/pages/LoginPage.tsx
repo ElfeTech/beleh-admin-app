@@ -29,14 +29,17 @@ const LoginPage: React.FC = () => {
       await login();
       navigate('/', { replace: true });
     } catch (err) {
-      setLocalError(err instanceof Error ? err.message : 'Failed to sign in');
+      // Prefer the context error (richer / persisted); fall back to raw message.
+      const message = err instanceof Error ? err.message : 'Failed to sign in';
+      setLocalError(message);
+      console.error('[admin-auth] Sign-in UI error', err);
     } finally {
       setLoading(false);
     }
   };
 
   const isForbidden = status === 'forbidden';
-  const displayError = isForbidden ? error : localError || error;
+  const displayError = error || localError;
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#05080f] text-white">

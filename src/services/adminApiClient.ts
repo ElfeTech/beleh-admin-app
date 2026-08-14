@@ -42,7 +42,11 @@ adminApiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
-    if (error.response?.status === 401 && original && !original._retry) {
+    const status = error.response?.status;
+    const isLoginCall = Boolean(original.url?.includes('/auth/login'));
+    // Only refresh on 401. A 403 usually means invite/forbidden and re-login will not help;
+    // retrying can clear a valid session and bounce the UI back to /login with no message.
+    if (status === 401 && original && !original._retry && !isLoginCall) {
       original._retry = true;
       try {
         if (!refreshPromise) {
