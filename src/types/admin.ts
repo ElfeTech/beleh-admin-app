@@ -596,3 +596,124 @@ export interface AdminInviteCreate {
 export interface InvitesListParams extends ListParams {
   status?: AdminInviteStatus;
 }
+
+// ---------------------------------------------------------------------------
+// Billing ledger (Stripe webhook events + subscriptions)
+// ---------------------------------------------------------------------------
+
+export type BillingEventStatus = 'received' | 'processed' | 'failed' | 'ignored' | 'duplicate';
+
+export interface AdminBillingEvent {
+  id: string;
+  stripe_event_id?: string | null;
+  event_type: string;
+  status: BillingEventStatus;
+  error?: string | null;
+  user_id?: string | null;
+  user_email?: string | null;
+  stripe_customer_id?: string | null;
+  stripe_subscription_id?: string | null;
+  stripe_invoice_id?: string | null;
+  amount_cents?: number | null;
+  currency?: string | null;
+  summary?: Record<string, unknown> | null;
+  created_at?: string | null;
+  processed_at?: string | null;
+}
+
+export interface AdminSubscriptionRow {
+  id: string;
+  scope: 'user' | 'workspace';
+  user_id?: string | null;
+  user_email?: string | null;
+  workspace_id?: string | null;
+  workspace_name?: string | null;
+  plan_id?: string | null;
+  plan_name?: string | null;
+  plan_tier?: string | null;
+  status: string;
+  billing_interval?: string | null;
+  unit_amount_cents?: number | null;
+  billing_cycle_start?: string | null;
+  billing_cycle_end?: string | null;
+  started_at?: string | null;
+  cancelled_at?: string | null;
+  expires_at?: string | null;
+  external_subscription_id?: string | null;
+}
+
+export interface AdminBillingSummary {
+  subscriptions_by_status: Record<string, number>;
+  estimated_mrr_cents: number;
+  events_last_24h: number;
+  events_last_7d: number;
+  failed_events_last_7d: number;
+}
+
+// ---------------------------------------------------------------------------
+// System logs
+// ---------------------------------------------------------------------------
+
+export interface AdminSystemLog {
+  id: string;
+  level: string;
+  logger?: string | null;
+  message: string;
+  exception?: string | null;
+  request_id?: string | null;
+  method?: string | null;
+  path?: string | null;
+  created_at?: string | null;
+}
+
+export interface AdminSystemLogStats {
+  counts_24h: Record<string, number>;
+  counts_7d: Record<string, number>;
+  top_loggers_7d: { logger: string; count: number }[];
+  total: number;
+}
+
+// ---------------------------------------------------------------------------
+// Admin action audit
+// ---------------------------------------------------------------------------
+
+export interface AdminAuditLogEntry {
+  id: string;
+  admin_user_id?: string | null;
+  admin_email?: string | null;
+  method: string;
+  path: string;
+  query?: string | null;
+  status_code: number;
+  duration_ms?: number | null;
+  request_id?: string | null;
+  client_ip?: string | null;
+  user_agent?: string | null;
+  created_at?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Per-user usage (investigation view)
+// ---------------------------------------------------------------------------
+
+export interface AdminUserUsageDaily {
+  date: string;
+  queries: number;
+  llm_tokens: number;
+  rows_scanned: number;
+  chart_renders: number;
+}
+
+export interface AdminUserUsage {
+  period_start: string;
+  period_end: string;
+  total_queries: number;
+  total_llm_tokens: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_rows_scanned: number;
+  total_chart_renders: number;
+  estimated_cost_usd?: number | null;
+  monthly_llm_token_limit?: number | null;
+  daily: AdminUserUsageDaily[];
+}

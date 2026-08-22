@@ -21,6 +21,9 @@ import DatasourcesPage from './pages/DatasourcesPage';
 import FeedbackPage from './pages/FeedbackPage';
 import ProvidersPage from './pages/ProvidersPage';
 import OpsPage from './pages/OpsPage';
+import BillingPage from './pages/BillingPage';
+import LogsPage from './pages/LogsPage';
+import AuditLogPage from './pages/AuditLogPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -71,6 +74,7 @@ function AppRoutes() {
         <Route path="workspaces/:workspaceId" element={<WorkspaceDetailPage />} />
         <Route path="plans" element={<PlansPage />} />
         <Route path="finance" element={<FinancePage />} />
+        <Route path="billing" element={<BillingPage />} />
         <Route path="invites" element={<InvitesPage />} />
         <Route path="usage" element={<UsagePage />} />
         <Route path="chat-runs" element={<ChatRunsPage />} />
@@ -78,6 +82,8 @@ function AppRoutes() {
         <Route path="datasources" element={<DatasourcesPage />} />
         <Route path="feedback" element={<FeedbackPage />} />
         <Route path="providers" element={<ProvidersPage />} />
+        <Route path="logs" element={<LogsPage />} />
+        <Route path="audit" element={<AuditLogPage />} />
         <Route path="ops" element={<OpsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

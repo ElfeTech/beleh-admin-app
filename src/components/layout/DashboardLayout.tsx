@@ -7,6 +7,7 @@ import {
   Boxes,
   Building2,
   Cable,
+  ClipboardList,
   Database,
   LayoutDashboard,
   LogOut,
@@ -14,6 +15,8 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeft,
+  Receipt,
+  ScrollText,
   Server,
   Shield,
   Users,
@@ -35,6 +38,7 @@ const platformNav = [
   { name: 'Workspaces', icon: Boxes, path: '/workspaces' },
   { name: 'Plans', icon: CreditCard, path: '/plans' },
   { name: 'Finance', icon: Wallet, path: '/finance' },
+  { name: 'Billing', icon: Receipt, path: '/billing' },
   { name: 'Invites', icon: UserPlus, path: '/invites' },
   { name: 'Usage', icon: Activity, path: '/usage' },
 ];
@@ -45,6 +49,8 @@ const opsNav = [
   { name: 'Datasources', icon: HardDrive, path: '/datasources' },
   { name: 'Feedback', icon: MessageSquare, path: '/feedback' },
   { name: 'Providers', icon: Database, path: '/providers' },
+  { name: 'Logs', icon: ScrollText, path: '/logs' },
+  { name: 'Audit', icon: ClipboardList, path: '/audit' },
   { name: 'Ops', icon: Server, path: '/ops' },
 ];
 

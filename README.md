@@ -8,6 +8,10 @@ A stunning administrative interface for managing the Beleh AI BI platform.
 - **Modern shell**: Dark sidebar + light content canvas, teal accent, IBM Plex typography.
 - **Animated login**: SVG circuit wires with traveling nodes (Framer Motion).
 - **Full admin surface**: Users, workspaces, plans, usage, chat-runs, connectors, datasources, feedback, providers, ops.
+- **Billing ledger**: Stripe webhook transaction history + all subscriptions with MRR summary (`/billing`).
+- **System logs**: captured backend warnings/errors with tracebacks, request-id correlation, and purge (`/logs`).
+- **Admin audit**: every mutating admin API call recorded — who, what, status, duration (`/audit`).
+- **User investigation**: per-user usage (month totals + 30-day chart), recent chat runs, and billing events on the user detail page.
 - **React Query**: Cached queries with keys like `['admin', 'users']`.
 
 ## Tech Stack

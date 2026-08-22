@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { X } from 'lucide-react';
 import { DataTable } from '../components/dashboard/DataTable';
 import { PageHeader } from '../components/ui/PageHeader';
 import { FilterBar } from '../components/ui/FilterBar';
@@ -13,7 +15,12 @@ import { extractAdminError } from '../services/adminApiClient';
 import type { AdminChatRunSummary } from '../types/admin';
 import { formatDate, truncate } from '../utils/format';
 
+const RUN_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled'];
+
 const ChatRunsPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const userIdFilter = searchParams.get('user_id') || '';
+
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('');
   const [errorCode, setErrorCode] = useState('');
@@ -22,13 +29,14 @@ const ChatRunsPage: React.FC = () => {
   const qc = useQueryClient();
 
   const query = useQuery({
-    queryKey: ['admin', 'chat-runs', { page, status, errorCode }],
+    queryKey: ['admin', 'chat-runs', { page, status, errorCode, userIdFilter }],
     queryFn: () =>
       chatRunsApi.list({
         page,
         page_size: 20,
         status: status || undefined,
         error_code: errorCode || undefined,
+        user_id: userIdFilter || undefined,
       }),
   });
 
@@ -52,15 +60,34 @@ const ChatRunsPage: React.FC = () => {
       <PageHeader title="Chat runs" description="Inspect and force-cancel agent runs." />
 
       <FilterBar>
-        <input
+        {userIdFilter ? (
+          <button
+            type="button"
+            onClick={() => {
+              searchParams.delete('user_id');
+              setSearchParams(searchParams, { replace: true });
+              setPage(1);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700 ring-1 ring-teal-200 hover:bg-teal-100"
+          >
+            User: {truncate(userIdFilter, 8)} <X className="h-3 w-3" />
+          </button>
+        ) : null}
+        <select
           value={status}
           onChange={(e) => {
             setStatus(e.target.value);
             setPage(1);
           }}
-          placeholder="Status filter"
           className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-        />
+        >
+          <option value="">All statuses</option>
+          {RUN_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
         <input
           value={errorCode}
           onChange={(e) => {

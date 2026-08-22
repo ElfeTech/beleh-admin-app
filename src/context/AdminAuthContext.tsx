@@ -19,7 +19,6 @@ import {
   loginWithGoogle,
   logoutAdmin,
 } from '../services/adminAuth';
-import { adminApiBaseUrl } from '../services/adminApiClient';
 import type { AdminUserSummary } from '../types/admin';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'forbidden';

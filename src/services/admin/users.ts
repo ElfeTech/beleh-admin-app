@@ -3,6 +3,7 @@ import type {
   AdminUserDetail,
   AdminUserPatch,
   AdminUserSummary,
+  AdminUserUsage,
   ListParams,
   PaginatedResponse,
 } from '../../types/admin';
@@ -22,5 +23,8 @@ export const usersApi = {
   },
   patch(userId: string, body: AdminUserPatch) {
     return adminApiClient.patch<AdminUserDetail>(`/users/${userId}`, body).then((r) => r.data);
+  },
+  usage(userId: string) {
+    return adminApiClient.get<AdminUserUsage>(`/users/${userId}/usage`).then((r) => r.data);
   },
 };

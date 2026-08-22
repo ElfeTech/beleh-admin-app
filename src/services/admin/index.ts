@@ -10,3 +10,6 @@ export { providersApi } from './providers';
 export { opsApi } from './ops';
 export { pricingApi, costCatalogApi, financeApi } from './finance';
 export { invitesApi } from './invites';
+export { billingAdminApi } from './billing';
+export { logsApi } from './logs';
+export { auditLogApi } from './auditLog';
