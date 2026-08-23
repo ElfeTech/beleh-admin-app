@@ -16,6 +16,8 @@ import {
   ensureAdminSession,
   exchangeFirebaseToken,
   fetchAdminMe,
+  GOOGLE_REDIRECT_INCOMPLETE_MESSAGE,
+  hasPendingGoogleRedirect,
   loginWithGoogle,
   logoutAdmin,
 } from '../services/adminAuth';
@@ -111,8 +113,13 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     // Surface redirect-flow failures; success is handled by onAuthStateChanged.
     void getRedirectResult(auth).catch((err) => {
       if (cancelled || loginInFlightRef.current) return;
-      const message = err instanceof Error ? err.message : 'Sign-in redirect failed';
       console.error('[admin-auth] getRedirectResult failed', err);
+      clearPendingGoogleRedirect();
+      // "missing initial state" is Firebase-speak for the same blocked handshake.
+      const raw = err instanceof Error ? err.message : '';
+      const message = /missing initial state/i.test(raw)
+        ? GOOGLE_REDIRECT_INCOMPLETE_MESSAGE
+        : raw || 'Sign-in redirect failed';
       setStatus('unauthenticated');
       setAuthError(message);
     });
@@ -127,6 +134,16 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
       if (!firebaseUser) {
         clearAdminToken();
         setAdmin(null);
+        // A redirect login we started must come back signed in. Arriving here
+        // signed out means the browser dropped the cross-site handshake — say so
+        // instead of silently bouncing to /login (keep any more specific error
+        // that getRedirectResult already persisted).
+        if (hasPendingGoogleRedirect()) {
+          clearPendingGoogleRedirect();
+          if (!readPersistedError()) {
+            setAuthError(GOOGLE_REDIRECT_INCOMPLETE_MESSAGE);
+          }
+        }
         setStatus('unauthenticated');
         return;
       }

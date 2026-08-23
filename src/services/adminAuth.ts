@@ -32,10 +32,23 @@ function firebaseErrorCode(error: unknown): string | undefined {
   return undefined;
 }
 
-function isLocalHost(): boolean {
-  if (typeof window === 'undefined') return false;
-  return /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
-}
+/**
+ * Shown when a redirect sign-in returns from Google without a Firebase session.
+ * Firebase resolves redirect logins through an iframe on the authDomain; when that
+ * domain (firebaseapp.com) is a different site than this origin, browsers that
+ * partition third-party storage drop the handshake and getRedirectResult() yields
+ * null instead of an error — which used to look like a silent bounce to /login.
+ */
+export const GOOGLE_REDIRECT_INCOMPLETE_MESSAGE =
+  'Google approved the sign-in, but this browser blocked the cross-site handshake ' +
+  'that completes it (third-party storage for firebaseapp.com). Allow popups for ' +
+  'this site and sign in again, or allow cross-site cookies for this site.';
+
+/** Popup failed in a way where a full-page redirect is a sensible fallback. */
+const POPUP_FALLBACK_CODES = new Set([
+  'auth/popup-blocked',
+  'auth/operation-not-supported-in-this-environment',
+]);
 
 export function clearPendingGoogleRedirect(): void {
   try {
@@ -93,26 +106,19 @@ export async function exchangeFirebaseToken(idToken: string): Promise<AdminLogin
 export async function loginWithGoogle(): Promise<AdminLoginResponse> {
   const provider = getGoogleProvider();
 
-  // Deployed hosts: prefer full-page redirect. Chrome/Safari often break Firebase
-  // popups across vercel.app → firebaseapp.com (third-party cookies), which looks
-  // like "Firebase succeeded then bounced to /login". Localhost is usually fine.
-  if (!isLocalHost()) {
-    try {
-      sessionStorage.setItem(PENDING_GOOGLE_REDIRECT_KEY, '1');
-    } catch {
-      // ignore
-    }
-    await signInWithRedirect(auth, provider);
-    return new Promise(() => undefined);
-  }
-
+  // Popup-first on every host. The popup completes the handshake via postMessage
+  // between windows, so it works even when authDomain (firebaseapp.com) is a
+  // different site and the browser partitions third-party storage. Redirect is the
+  // flow that silently loses the session in that setup (Google succeeds, the app
+  // returns with no user), so it is only a fallback for blocked popups. Serving
+  // auth from this origin (see README: first-party auth domain) fixes both flows.
   const restoreOpen = patchWindowOpenCentered(500, 600);
   try {
     const result = await signInWithPopup(auth, provider);
     return await completeLoginWithUser(result.user);
   } catch (error) {
     const code = firebaseErrorCode(error);
-    if (code === 'auth/popup-blocked') {
+    if (code && POPUP_FALLBACK_CODES.has(code)) {
       try {
         sessionStorage.setItem(PENDING_GOOGLE_REDIRECT_KEY, '1');
       } catch {
@@ -120,6 +126,12 @@ export async function loginWithGoogle(): Promise<AdminLoginResponse> {
       }
       await signInWithRedirect(auth, provider);
       return new Promise(() => undefined);
+    }
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      throw new AdminAuthError(
+        'The Google sign-in window was closed before finishing. Try again.',
+        { code },
+      );
     }
     throw error;
   } finally {
